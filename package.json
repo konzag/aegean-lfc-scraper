@@ -1,0 +1,24 @@
+{
+  "name": "aegean-lfc-scraper",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/konzag/aegean-lfc-scraper.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/konzag/aegean-lfc-scraper/issues"
+  },
+  "homepage": "https://github.com/konzag/aegean-lfc-scraper#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "@types/node": "^25.9.1",
+    "dotenv": "^17.4.2"
+  }
+}

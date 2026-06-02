@@ -1,0 +1,29 @@
+﻿# Dependencies
+node_modules/
+
+# Secrets / credentials
+.env
+.env.*
+!.env.example
+
+# Playwright auth/session state (cookies, tokens) — sensitive!
+playwright/.auth/
+
+# Playwright generated output
+test-results/
+playwright-report/
+playwright/.cache/
+blob-report/
+
+# Logs
+npm-debug.log*
+
+# Discovery output
+discovery/
+
+# Discovery output
+discovery/
+
+# Scraper output
+data/
+probe-run.log
