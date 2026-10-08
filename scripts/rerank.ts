@@ -7,7 +7,7 @@
 
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
-import { writeCsv } from '../src/csv';
+import { writeCsv, restoreFormula } from '../src/csv';
 import { pairTrips } from '../src/pairing';
 import type { LegFare } from '../src/pairing';
 
@@ -47,7 +47,7 @@ function parseCsv(text: string): Record<string, string>[] {
   return lines.slice(1).map(l => {
     const c = splitLine(l);
     const o: Record<string, string> = {};
-    head.forEach((h, i) => (o[h] = c[i] ?? ''));
+    head.forEach((h, i) => (o[h] = restoreFormula(c[i] ?? '')));
     return o;
   });
 }

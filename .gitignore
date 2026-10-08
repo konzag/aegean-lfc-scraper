@@ -1,10 +1,9 @@
-﻿# Dependencies
+# Dependencies
 node_modules/
 
 # Secrets / credentials
 .env
 .env.*
-!.env.example
 
 # Playwright auth/session state (cookies, tokens) — sensitive!
 playwright/.auth/
@@ -17,13 +16,14 @@ blob-report/
 
 # Logs
 npm-debug.log*
+*.log
 
-# Discovery output
-discovery/
-
-# Discovery output
+# Discovery output (raw API responses)
 discovery/
 
 # Scraper output
 data/
-probe-run.log
+
+# Local tooling
+.remember/
+.claude/settings.local.json

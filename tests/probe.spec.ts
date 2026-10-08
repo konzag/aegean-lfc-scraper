@@ -13,7 +13,11 @@ test('probe enumeration + in-context fetch', async ({ page }) => {
   await page.waitForTimeout(5000);
 
   const getJson = (url: string) => page.evaluate(async (u) => {
-    const r = await fetch(u, { headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'include' });
+    const r = await fetch(u, {
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      credentials: 'include',
+      signal: AbortSignal.timeout(30_000),
+    });
     let body: any = null;
     try { body = await r.json(); } catch {}
     return { status: r.status, body };
