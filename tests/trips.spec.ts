@@ -1,8 +1,8 @@
-import { test } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import { writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import {
-  BASE, airportsSearchUrl, routeLowFaresUrl, parseDotNetDate, ymd, DOW_NAMES,
+  BASE, airportsSearchUrl, routeLowFaresUrl, parseDotNetDate, ymd, DOW_NAMES, nextMonths,
 } from '../src/aegean';
 import type { AirportItem, RouteLowFares } from '../src/aegean';
 import { isBeach } from '../src/beaches';
@@ -22,9 +22,16 @@ const envDow = (k: string, d: string) =>
   new Set(env(k, d).split(',').map(s => Number(s.trim())).filter(n => !Number.isNaN(n)));
 
 const ORIGINS   = env('ORIGINS', 'ATH,SKG,PVK').split(',').map(s => s.trim()).filter(Boolean);
-const MONTHS    = env('MONTHS', '2026-6,2026-7,2026-8,2026-9').split(',').map(s => s.trim()).filter(Boolean);
+// Default: the current month + the next MONTHS_AHEAD-1 months (never past months).
+const MONTHS    = (process.env.MONTHS
+  ? process.env.MONTHS.split(',').map(s => s.trim()).filter(Boolean)
+  : nextMonths(envNum('MONTHS_AHEAD', 4)));
 const TRIP      = env('TRIP', 'RT');
 const DELAY_MS  = envNum('DELAY_MS', 1100);
+const FETCH_TIMEOUT_MS  = envNum('FETCH_TIMEOUT_MS', 30_000);
+const MAX_RETRIES       = envNum('MAX_RETRIES', 3);        // per call, on 403/429/5xx/timeout
+const BACKOFF_BASE_MS   = envNum('BACKOFF_BASE_MS', 4000); // 4s, 8s, 16s (+ jitter)
+const MAX_BLOCKED_RATIO = envNum('MAX_BLOCKED_RATIO', 0.2);  // fail the run above this
 const MAX_DEST  = process.env.MAX_DEST ? Number(process.env.MAX_DEST) : Infinity;
 const LIST_ONLY = envBool('LIST_ONLY', false);
 const DUMP_RAW  = envBool('DUMP_RAW', false);
@@ -60,20 +67,36 @@ test('aegean direct beach long-weekends', async ({ page }) => {
   }
   await page.waitForTimeout(5000);
 
-  // same-origin fetch from inside the page (carries the _abck cookie)
-  const apiGet = (url: string): Promise<{ status: number; body: any }> =>
-    page.evaluate(async (u) => {
-      const r = await fetch(u, { headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'include' });
-      let body: any = null; try { body = await r.json(); } catch { /* non-JSON */ }
-      return { status: r.status, body };
-    }, url);
+  // same-origin fetch from inside the page (carries the _abck cookie).
+  // status 0 = network error or timeout (AbortSignal), with the reason in `error`.
+  type ApiResult = { status: number; body: any; error?: string };
+  const apiGet = (url: string): Promise<ApiResult> =>
+    page.evaluate(async ({ u, timeoutMs }) => {
+      try {
+        const r = await fetch(u, {
+          headers: { 'X-Requested-With': 'XMLHttpRequest' },
+          credentials: 'include',
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+        let body: any = null; try { body = await r.json(); } catch { /* non-JSON */ }
+        return { status: r.status, body };
+      } catch (e) {
+        return { status: 0, body: null, error: e instanceof Error ? `${e.name}: ${e.message}` : String(e) };
+      }
+    }, { u: url, timeoutMs: FETCH_TIMEOUT_MS });
 
-  // one Akamai-refresh retry on 403/429 (reload page renews _abck)
-  const apiGetRetry = async (url: string) => {
+  const retryable = (s: number) => s === 0 || s === 403 || s === 429 || s >= 500;
+
+  // Exponential backoff. On 403/429 also reload the calendar page (renews Akamai _abck).
+  const apiGetRetry = async (url: string): Promise<ApiResult> => {
     let res = await apiGet(url);
-    if (res.status === 403 || res.status === 429) {
-      await page.goto(CALENDAR_URL, { waitUntil: 'domcontentloaded' });
-      await page.waitForTimeout(4000);
+    for (let attempt = 1; attempt <= MAX_RETRIES && retryable(res.status); attempt++) {
+      const wait = BACKOFF_BASE_MS * 2 ** (attempt - 1) + Math.floor(Math.random() * 1000);
+      console.warn(`retry ${attempt}/${MAX_RETRIES} in ${wait}ms: HTTP ${res.status}${res.error ? ` (${res.error})` : ''} ${url}`);
+      if (res.status === 403 || res.status === 429) {
+        await page.goto(CALENDAR_URL, { waitUntil: 'domcontentloaded' });
+      }
+      await page.waitForTimeout(wait);
       res = await apiGet(url);
     }
     return res;
@@ -157,10 +180,19 @@ test('aegean direct beach long-weekends', async ({ page }) => {
     for (const d of dests) {
       for (const month of MONTHS) {
         calls++;
+        const url = routeLowFaresUrl({ origin, dest: d.value, tripType: TRIP, month });
         try {
-          const r = await apiGetRetry(routeLowFaresUrl({ origin, dest: d.value, tripType: TRIP, month }));
-          if (r.status === 403 || r.status === 429) { blocked++; await sleep(jitter()); continue; }
-          if (r.status !== 200 || !r.body) { await sleep(jitter()); continue; }
+          const r = await apiGetRetry(url);
+          if (r.status === 403 || r.status === 429) {
+            blocked++;
+            console.warn(`BLOCKED (HTTP ${r.status}) after ${MAX_RETRIES} retries: ${origin}->${d.value} ${month}`);
+            await sleep(jitter()); continue;
+          }
+          if (r.status !== 200 || !r.body) {
+            errors++;
+            console.warn(`FAILED HTTP ${r.status}${r.error ? ` (${r.error})` : ''}: ${origin}->${d.value} ${month}`);
+            await sleep(jitter()); continue;
+          }
           const data = r.body as RouteLowFares;
 
           if (DUMP_RAW && !dumped) {
@@ -186,7 +218,10 @@ test('aegean direct beach long-weekends', async ({ page }) => {
           };
           emit(data.Outbound, 'OUT');
           emit(data.Inbound, 'IN');
-        } catch { errors++; }
+        } catch (e) {
+          errors++;
+          console.warn(`ERROR ${origin}->${d.value} ${month}: ${e instanceof Error ? e.message : String(e)}`);
+        }
 
         if (calls % 25 === 0) {
           console.log(`progress ${calls}/${totalCalls} | legs ${legMap.size} | 403 ${blocked} | err ${errors}`);
@@ -213,6 +248,10 @@ test('aegean direct beach long-weekends', async ({ page }) => {
   console.log(`\nDONE: ${calls} calls | ${legs.length} legs | ${trips.length} trips | 403 ${blocked} | err ${errors}`);
   console.log(`OUT -> ${join(outDir, 'fares.csv')} | ${join(outDir, 'ranked.csv')}`);
   printTop(trips, TOP_N);
+
+  // Fail loudly instead of silently producing a partial ranking.
+  expect(calls, 'no fare calls were planned (check ORIGINS/MONTHS/filters)').toBeGreaterThan(0);
+  expect(blocked / calls, `blocked ratio ${blocked}/${calls} exceeds MAX_BLOCKED_RATIO`).toBeLessThanOrEqual(MAX_BLOCKED_RATIO);
 });
 
 function writeRanked(outDir: string, trips: RankedTrip[]) {

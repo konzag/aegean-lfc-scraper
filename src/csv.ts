@@ -7,9 +7,24 @@ import { dirname } from 'path';
 
 const BOM = '\uFEFF';
 
+// Text starting with one of these is interpreted as a formula by Excel/Sheets
+// (CSV/formula injection). Labels come from a remote API, so neutralise them.
+const FORMULA_START = /^[=+\-@\t\r]/;
+
+/** Prefix a quote to text values that a spreadsheet would treat as a formula. */
+export function neutralizeFormula(s: string): string {
+  return FORMULA_START.test(s) ? `'${s}` : s;
+}
+
+/** Inverse of neutralizeFormula, for reading our own CSVs back. */
+export function restoreFormula(s: string): string {
+  return /^'[=+\-@\t\r]/.test(s) ? s.slice(1) : s;
+}
+
 function cell(v: unknown): string {
   if (v === null || v === undefined) return '';
-  const s = String(v);
+  // Only text is guarded; numbers (e.g. negative prices) stay numeric.
+  const s = typeof v === 'string' ? neutralizeFormula(v) : String(v);
   return /[",\n\r;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 

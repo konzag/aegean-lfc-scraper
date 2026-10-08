@@ -79,5 +79,21 @@ export function ymd(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+/**
+ * The current month plus the following n-1 months, in the API's 'YYYY-M' format.
+ * e.g. nextMonths(3, new Date('2026-11-15')) -> ['2026-11', '2026-12', '2027-1']
+ */
+export function nextMonths(n: number, from: Date = new Date()): string[] {
+  const out: string[] = [];
+  let y = from.getUTCFullYear();
+  let m = from.getUTCMonth(); // 0-based
+  for (let i = 0; i < n; i++) {
+    out.push(`${y}-${m + 1}`);
+    m++;
+    if (m === 12) { m = 0; y++; }
+  }
+  return out;
+}
+
 // getUTCDay(): 0=Sun .. 6=Sat
 export const DOW_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
