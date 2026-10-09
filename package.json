@@ -22,9 +22,9 @@
   },
   "homepage": "https://github.com/konzag/aegean-lfc-scraper#readme",
   "devDependencies": {
-    "@playwright/test": "1.60.0",
-    "@types/node": "25.9.1",
+    "@playwright/test": "1.64.0",
+    "@types/node": "26.6.4",
     "tsx": "4.23.15",
-    "typescript": "5.9.3"
+    "typescript": "7.0.2"
   }
 }
