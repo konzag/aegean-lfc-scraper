@@ -105,6 +105,10 @@ test('aegean direct beach long-weekends', async ({ page }) => {
   // ---- 2) enumeration + filtering ----
   async function enumerate(origin: string): Promise<AirportItem[]> {
     const r = await apiGetRetry(airportsSearchUrl(origin, 'to')); // direction=to&airport=ORIGIN -> dests FROM origin
+    if (r.status !== 200 || !Array.isArray(r.body)) {
+      // Otherwise a blocked/failed enumeration silently drops the whole origin.
+      console.warn(`ENUM FAILED for ${origin}: HTTP ${r.status}${r.error ? ` (${r.error})` : ''} — origin skipped`);
+    }
     const arr: any[] = Array.isArray(r.body) ? r.body : [];
     return arr
       .filter(x => x?.value && x.value !== origin)
